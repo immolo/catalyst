@@ -32,10 +32,12 @@ COMMON_FLAGS = "-O2 -march=i686 -pipe"
 
 [x86.pentium-mmx]
 COMMON_FLAGS = "-O2 -march=pentium-mmx -pipe"
+CHOST = "i586-pc-linux-gnu"
 CPU_FLAGS_X86 = [ "mmx",]
 
 [x86.k6]
 COMMON_FLAGS = "-O2 -march=k6 -pipe"
+CHOST = "i586-pc-linux-gnu"
 CPU_FLAGS_X86 = [ "mmx",]
 
 [x86.k6-2]
