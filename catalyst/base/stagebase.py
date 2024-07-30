@@ -75,6 +75,7 @@ class StageBase(TargetBase, ClearBase, GenBase):
             "hostuse",
             "install_mask",
             "interpreter",
+            "keep_repos",
             "kerncache_path",
             "ldflags",
             "pkgcache_path",
@@ -205,6 +206,7 @@ class StageBase(TargetBase, ClearBase, GenBase):
         self.set_busybox_config()
         self.set_overlay()
         self.set_repos()
+        self.set_keep_repos()
         self.set_root_overlay()
 
         # This next line checks to make sure that the specified variables exist on disk.
@@ -661,6 +663,22 @@ class StageBase(TargetBase, ClearBase, GenBase):
             get_info = lambda repo: (repo, get_repo_name(repo), None)
             self.repos.extend(map(get_info, self.settings['repos']))
 
+    def set_keep_repos(self):
+        setting = self.settings.get('keep_repos', '')
+
+        if isinstance(setting, str):
+            self.settings['keep_repos'] = set(setting.split())
+
+        log.info('keeping repo configuration for: %s',
+            ' '.join(self.settings['keep_repos']))
+
+        for keep_repo in self.settings['keep_repos']:
+            for _, name, _ in self.repos:
+                if name == keep_repo:
+                    break
+            else:
+                log.warning('keep_repos references unknown repo: %s', keep_repo)
+
     def set_overlay(self):
         if self.settings["spec_prefix"] + "/overlay" in self.settings:
             if isinstance(self.settings[self.settings['spec_prefix'] + '/overlay'], str):
@@ -846,19 +864,37 @@ class StageBase(TargetBase, ClearBase, GenBase):
 
     def config_profile_link(self):
         log.info('Configuring profile link...')
-        make_profile = Path(self.settings['chroot_path'] + self.settings['port_conf'],
-                            'make.profile')
+
+        chroot_port_conf = Path(self.settings['chroot_path'] + self.settings['port_conf'])
+        make_profile = chroot_port_conf / 'make.profile'
         make_profile.unlink(missing_ok=True)
+
         try:
             repo_name, target_profile = self.settings['target_profile'].split(":", 1)
         except ValueError:
             repo_name = self.settings['repo_name']
             target_profile = self.settings['target_profile']
-        make_profile.symlink_to(Path('../..' + self.settings['repo_basedir'],
-                                     repo_name,
-                                     'profiles',
-                                     target_profile),
+
+        chroot_profile_path = Path(self.settings['chroot_path'] + self.settings['repo_basedir'],
+                                   repo_name,
+                                   'profiles',
+                                   target_profile)
+
+        make_profile.symlink_to(os.path.relpath(chroot_profile_path, chroot_port_conf),
                                 target_is_directory=True)
+
+        if self.settings['root_path'] != '/':
+            log.info('Configuring ROOT profile link...')
+
+            # stage_path is chroot_path + root_path
+            root_port_conf = Path(self.settings['stage_path'] + self.settings['port_conf'])
+            root_port_conf.mkdir(mode=0o755, parents=True, exist_ok=True)
+
+            root_make_profile = root_port_conf / 'make.profile'
+            root_make_profile.unlink(missing_ok=True)
+
+            root_make_profile.symlink_to(os.path.relpath(chroot_profile_path, root_port_conf),
+                                         target_is_directory=True)
 
     def setup_confdir(self):
         if "autoresume" in self.settings["options"] \
@@ -1286,6 +1322,8 @@ class StageBase(TargetBase, ClearBase, GenBase):
 
         # Remove repo data
         for _, name, _ in self.repos:
+            if name in self.settings['keep_repos']:
+                continue
 
             # Remove repos.conf entry
             repo_conf = self.get_repo_conf_path(name)
